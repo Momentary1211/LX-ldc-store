@@ -101,18 +101,18 @@ export function verifySign(params: NotifyParams, secret: string): boolean {
 
 /**
  * 创建支付订单
- * 返回支付页面 URL
+ * 返回支付页面 URL（直接拼接参数，让浏览器跳转以绕过 Cloudflare）
  * @param orderId 订单号
  * @param amount 金额
  * @param productName 商品名称
- * @param siteUrl 网站地址（用于回调），自动从请求头获取
+ * @param siteUrl 网站地址（用于回调）
  */
-export async function createPayment(
+export function createPayment(
   orderId: string,
   amount: number,
   productName: string,
   siteUrl: string
-): Promise<string> {
+): string {
   let gateway = process.env.LDC_GATEWAY || "https://credit.linux.do/epay";
   const pid = process.env.LDC_PID;
   const secret = process.env.LDC_SECRET;
@@ -139,64 +139,19 @@ export async function createPayment(
 
   const sign = generateSign(params as unknown as Record<string, string>, secret);
 
-  const formData = new URLSearchParams({
+  // 构建完整的支付 URL（使用 GET 方式让浏览器直接跳转）
+  const searchParams = new URLSearchParams({
     ...params,
     sign,
     sign_type: "MD5",
   } as Record<string, string>);
 
+  const paymentUrl = `${gateway}/pay/submit.php?${searchParams.toString()}`;
+
   // 调试日志
-  console.log("LDC 支付请求:", {
-    gateway,
-    url: `${gateway}/pay/submit.php`,
-    params: { ...params, sign, sign_type: "MD5" },
-  });
+  console.log("LDC 支付 URL:", paymentUrl);
 
-  // 发起请求，获取跳转 URL
-  const response = await fetch(`${gateway}/pay/submit.php`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: formData,
-    redirect: "manual",
-  });
-
-  // 成功时返回 302 重定向
-  if (response.status === 302) {
-    const location = response.headers.get("Location");
-    if (location) {
-      return location;
-    }
-  }
-
-  // 处理错误 - 先获取响应文本以便调试
-  const responseText = await response.text();
-  console.error("LDC 支付 API 响应:", {
-    status: response.status,
-    statusText: response.statusText,
-    headers: Object.fromEntries(response.headers.entries()),
-    body: responseText.slice(0, 500), // 只打印前 500 字符
-  });
-
-  // 尝试解析为 JSON
-  try {
-    const error = JSON.parse(responseText);
-    throw new Error(error.error_msg || `创建支付订单失败 (HTTP ${response.status})`);
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("创建支付订单失败")) {
-      throw e;
-    }
-    // JSON 解析失败，可能是 HTML 错误页面
-    // 检查是否是常见错误
-    if (responseText.includes("签名验证失败")) {
-      throw new Error("签名验证失败，请检查 LDC_SECRET 配置");
-    }
-    if (responseText.includes("不支持的请求类型")) {
-      throw new Error("不支持的请求类型，type 必须为 epay");
-    }
-    throw new Error(`创建支付订单失败 (HTTP ${response.status})，请检查支付配置`);
-  }
+  return paymentUrl;
 }
 
 /**

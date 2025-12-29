@@ -134,7 +134,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     if (paymentMethod === "ldc") {
       try {
         const siteUrl = await getSiteUrl();
-        paymentUrl = await createPayment(
+        paymentUrl = createPayment(
           result.order.orderNo,
           result.totalAmount,
           product.name,
