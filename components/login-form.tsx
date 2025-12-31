@@ -88,18 +88,18 @@ export function LoginForm({
   const isDisabled = isLoading || isOAuthLoading
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
+    <div className={cn("flex flex-col", className)} {...props}>
       <Card className="overflow-hidden p-0">
         <CardContent className="grid p-0 md:grid-cols-2">
           <div className="bg-muted relative hidden md:block">
             <img
-              src="/placeholder.svg"
-              alt="Image"
-              className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
+              src="/login-side.webp"
+              alt="LinuxDo Community"
+              className="absolute inset-0 h-full w-full object-cover"
             />
           </div>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="p-6 md:p-8">
-            <FieldGroup>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="p-6">
+            <FieldGroup className="gap-5">
               <div className="flex flex-col items-center gap-2 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600">
                   <Lock className="h-7 w-7 text-white" />
