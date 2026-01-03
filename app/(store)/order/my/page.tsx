@@ -34,7 +34,7 @@ interface OrderData {
 
 const statusConfig: Record<
   string,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode }
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode; className?: string }
 > = {
   pending: {
     label: "待支付",
@@ -50,6 +50,7 @@ const statusConfig: Record<
     label: "已完成",
     variant: "default",
     icon: <CheckCircle2 className="h-3 w-3" />,
+    className: "bg-green-600 hover:bg-green-600/90",
   },
   expired: {
     label: "已过期",
@@ -184,10 +185,6 @@ export default function MyOrdersPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">{order.productName}</span>
-                      <Badge variant={status.variant} className="shrink-0 text-xs">
-                        {status.icon}
-                        <span className="ml-1">{status.label}</span>
-                      </Badge>
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                       <span>{formatDate(order.createdAt)}</span>
@@ -195,6 +192,10 @@ export default function MyOrdersPage() {
                       <span className="font-medium text-foreground">{order.totalAmount} LDC</span>
                     </div>
                   </div>
+                  <Badge variant={status.variant} className={`shrink-0 text-xs ${status.className || ""}`}>
+                    {status.icon}
+                    <span className="ml-1">{status.label}</span>
+                  </Badge>
                   <ChevronRight
                     className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${
                       isExpanded ? "rotate-90" : ""

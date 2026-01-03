@@ -55,9 +55,6 @@ const LinuxDoProvider = {
     trust_level?: number;
     silenced?: boolean;
   }) {
-    // 始终打印日志，帮助排查问题
-    console.log("[LinuxDoProvider] profile 原始数据:", JSON.stringify(profile, null, 2));
-    
     // 处理头像URL模板，替换 {size} 为实际尺寸
     const avatarUrl = profile.avatar_template
       ? profile.avatar_template.replace("{size}", "120")
@@ -66,23 +63,19 @@ const LinuxDoProvider = {
     // 重要：Linux DO 的用户 ID（数字）转为字符串
     // NextAuth v5 会覆盖 id 字段为内部 UUID，所以我们需要用自定义字段 linuxDoId 来保存真正的用户 ID
     const linuxDoId = String(profile.id);
-    console.log("[LinuxDoProvider] linuxDoId:", linuxDoId);
     
-    const result = {
-      id: linuxDoId, // NextAuth 可能会覆盖这个，但我们仍然设置它
+    return {
+      id: linuxDoId,
       name: profile.name || profile.username,
-      email: `${profile.username}@linux.do`, // Linux DO 不返回邮箱，使用用户名构造
+      email: `${profile.username}@linux.do`,
       image: avatarUrl,
       // 自定义字段（不会被 NextAuth 覆盖）
-      linuxDoId, // 保存真正的 Linux DO 用户 ID
+      linuxDoId,
       username: profile.username,
       trustLevel: profile.trust_level,
       active: profile.active,
       silenced: profile.silenced,
     };
-    
-    console.log("[LinuxDoProvider] profile 返回数据:", JSON.stringify(result, null, 2));
-    return result;
   },
 };
 
@@ -129,15 +122,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, user, account }) {
-      // 调试日志：始终打印，帮助排查生产环境问题
-      console.log("[JWT Callback] 调用, user存在:", !!user, ", account provider:", account?.provider);
-      
       if (user) {
         // 获取自定义字段 linuxDoId（不会被 NextAuth 覆盖）
         const linuxDoId = (user as { linuxDoId?: string }).linuxDoId;
-        console.log("[JWT Callback] user.id:", user.id);
-        console.log("[JWT Callback] user.linuxDoId:", linuxDoId);
-        console.log("[JWT Callback] account.providerAccountId:", account?.providerAccountId);
         
         // 重要：使用 linuxDoId 作为稳定的用户 ID
         // NextAuth v5 会将 user.id 替换为内部 UUID，所以我们使用自定义字段
@@ -161,31 +148,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const adminUsernames = getAdminUsernames();
           if (username && adminUsernames.includes(username)) {
             token.role = "admin";
-            console.log("[JWT Callback] OAuth 用户在管理员白名单中:", username);
           }
         }
-        
-        console.log("[JWT Callback] 设置后 token:", JSON.stringify({
-          id: token.id,
-          sub: token.sub,
-          provider: token.provider,
-          username: token.username,
-        }));
-      } else {
-        // 后续请求（token 刷新），检查 token 中是否保留了 id
-        console.log("[JWT Callback] Token 刷新, token:", JSON.stringify({
-          id: token.id,
-          sub: token.sub,
-          provider: token.provider,
-          username: token.username,
-        }));
       }
       return token;
     },
     async session({ session, token }) {
-      // 调试日志
-      console.log("[Session Callback] token.id:", token.id, ", token.sub:", token.sub, ", token.provider:", token.provider);
-      
       if (session.user) {
         // 使用 token.id 或 token.sub 作为用户 ID（确保兼容性）
         session.user.id = (token.id || token.sub) as string;
@@ -196,8 +164,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         (session.user as { active?: boolean }).active = token.active as boolean;
         (session.user as { silenced?: boolean }).silenced = token.silenced as boolean;
         (session.user as { provider?: string }).provider = token.provider as string;
-        
-        console.log("[Session Callback] 最终 session.user.id:", session.user.id);
       }
       return session;
     },
@@ -210,7 +176,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   // Vercel 部署必需：信任代理主机
   trustHost: true,
-  // 调试模式：打印更多日志
-  debug: process.env.NODE_ENV === "development",
 });
 

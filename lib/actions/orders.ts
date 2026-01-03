@@ -52,11 +52,6 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
   const session = await auth();
   const user = session?.user as { id?: string; username?: string; provider?: string } | undefined;
 
-  // 调试日志：创建订单时查看用户信息
-  console.log("[createOrder] session:", JSON.stringify(session, null, 2));
-  console.log("[createOrder] user.id:", user?.id);
-  console.log("[createOrder] user.provider:", user?.provider);
-
   if (!user?.id || user.provider !== "linux-do") {
     return {
       success: false,
@@ -407,17 +402,9 @@ export async function getUserOrders() {
     const session = await auth();
     const user = session?.user as { id?: string; username?: string; provider?: string } | undefined;
 
-    // 调试日志：查看 session 中的用户信息
-    console.log("[getUserOrders] session:", JSON.stringify(session, null, 2));
-    console.log("[getUserOrders] user.id:", user?.id);
-    console.log("[getUserOrders] user.provider:", user?.provider);
-
     if (!user?.id || user.provider !== "linux-do") {
       return { success: false, message: "请先登录", data: [] };
     }
-
-    // 调试日志：查询前打印 userId
-    console.log("[getUserOrders] 查询订单，userId:", user.id);
 
     const userOrders = await db.query.orders.findMany({
       where: eq(orders.userId, user.id),
