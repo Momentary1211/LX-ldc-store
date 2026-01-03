@@ -2,7 +2,6 @@
 
 import { db, products, cards, categories, orders } from "@/lib/db";
 import { eq, and, desc, asc, sql, ilike, or, inArray } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import {
   createProductSchema,
   updateProductSchema,
@@ -10,6 +9,7 @@ import {
   type UpdateProductInput,
 } from "@/lib/validations/product";
 import { requireAdmin } from "@/lib/auth-utils";
+import { revalidateProductAndRelatedCache } from "@/lib/cache";
 
 // 节流：最多每 60 秒检查一次过期订单
 let lastExpireCheck = 0;
@@ -285,8 +285,17 @@ export async function createProduct(input: CreateProductInput) {
       })
       .returning();
 
-    revalidatePath("/admin/products");
-    revalidatePath("/");
+    // 获取分类 slug 用于清理分类页缓存
+    let categorySlug: string | undefined;
+    if (product.categoryId) {
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, product.categoryId),
+        columns: { slug: true },
+      });
+      categorySlug = category?.slug;
+    }
+
+    await revalidateProductAndRelatedCache(product.slug, categorySlug);
 
     return { success: true, data: product };
   } catch (error) {
@@ -343,9 +352,17 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
       return { success: false, message: "商品不存在" };
     }
 
-    revalidatePath("/admin/products");
-    revalidatePath(`/product/${product.slug}`);
-    revalidatePath("/");
+    // 获取分类 slug 用于清理分类页缓存
+    let categorySlug: string | undefined;
+    if (product.categoryId) {
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, product.categoryId),
+        columns: { slug: true },
+      });
+      categorySlug = category?.slug;
+    }
+
+    await revalidateProductAndRelatedCache(product.slug, categorySlug);
 
     return { success: true, data: product };
   } catch (error) {
@@ -383,10 +400,24 @@ export async function deleteProduct(id: string) {
       return { success: false, message: "该商品有未完成的订单，无法删除" };
     }
 
+    // 获取商品信息用于清理缓存
+    const product = await db.query.products.findFirst({
+      where: eq(products.id, id),
+      columns: { slug: true, categoryId: true },
+    });
+
+    let categorySlug: string | undefined;
+    if (product?.categoryId) {
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, product.categoryId),
+        columns: { slug: true },
+      });
+      categorySlug = category?.slug;
+    }
+
     await db.delete(products).where(eq(products.id, id));
 
-    revalidatePath("/admin/products");
-    revalidatePath("/");
+    await revalidateProductAndRelatedCache(product?.slug, categorySlug);
 
     return { success: true, message: "商品已删除" };
   } catch (error) {
@@ -422,8 +453,17 @@ export async function toggleProductActive(id: string) {
       })
       .where(eq(products.id, id));
 
-    revalidatePath("/admin/products");
-    revalidatePath("/");
+    // 获取分类 slug 用于清理分类页缓存
+    let categorySlug: string | undefined;
+    if (product.categoryId) {
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, product.categoryId),
+        columns: { slug: true },
+      });
+      categorySlug = category?.slug;
+    }
+
+    await revalidateProductAndRelatedCache(product.slug, categorySlug);
 
     return {
       success: true,

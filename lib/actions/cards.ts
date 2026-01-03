@@ -2,9 +2,9 @@
 
 import { db, cards, products } from "@/lib/db";
 import { eq, and, sql, inArray, desc, asc } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { importCardsSchema, updateCardSchema, type ImportCardsInput, type UpdateCardInput } from "@/lib/validations/card";
 import { requireAdmin } from "@/lib/auth-utils";
+import { revalidateCardCache } from "@/lib/cache";
 
 /**
  * 批量导入卡密
@@ -86,9 +86,7 @@ export async function importCards(input: ImportCardsInput) {
       }))
     );
 
-    revalidatePath("/admin/cards");
-    revalidatePath("/admin/products");
-    revalidatePath("/");
+    await revalidateCardCache();
 
     return {
       success: true,
@@ -159,7 +157,7 @@ export async function updateCard(input: UpdateCardInput) {
       .set({ content })
       .where(eq(cards.id, cardId));
 
-    revalidatePath("/admin/cards");
+    await revalidateCardCache();
 
     return { success: true, message: "卡密更新成功" };
   } catch (error) {
@@ -241,8 +239,7 @@ export async function deleteCards(cardIds: string[]) {
       )
       .returning({ id: cards.id });
 
-    revalidatePath("/admin/cards");
-    revalidatePath("/admin/products");
+    await revalidateCardCache();
 
     return {
       success: true,
@@ -285,8 +282,7 @@ export async function resetLockedCards(cardIds: string[]) {
       )
       .returning({ id: cards.id });
 
-    revalidatePath("/admin/cards");
-    revalidatePath("/admin/products");
+    await revalidateCardCache();
 
     return {
       success: true,
@@ -363,8 +359,7 @@ export async function cleanDuplicateCards(productId: string) {
 
     await db.delete(cards).where(inArray(cards.id, duplicateIds));
 
-    revalidatePath("/admin/cards");
-    revalidatePath("/admin/products");
+    await revalidateCardCache();
 
     return {
       success: true,

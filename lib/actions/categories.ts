@@ -2,7 +2,6 @@
 
 import { db, categories, products } from "@/lib/db";
 import { eq, asc, and, sql } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -10,6 +9,7 @@ import {
   type UpdateCategoryInput,
 } from "@/lib/validations/category";
 import { requireAdmin } from "@/lib/auth-utils";
+import { revalidateCategoryCache } from "@/lib/cache";
 
 /**
  * 获取所有分类（前台）
@@ -84,8 +84,7 @@ export async function createCategory(input: CreateCategoryInput) {
       .values(validationResult.data)
       .returning();
 
-    revalidatePath("/admin/categories");
-    revalidatePath("/");
+    await revalidateCategoryCache(category.slug);
 
     return { success: true, data: category };
   } catch (error) {
@@ -129,8 +128,7 @@ export async function updateCategory(id: string, input: UpdateCategoryInput) {
       return { success: false, message: "分类不存在" };
     }
 
-    revalidatePath("/admin/categories");
-    revalidatePath("/");
+    await revalidateCategoryCache(category.slug);
 
     return { success: true, data: category };
   } catch (error) {
@@ -166,10 +164,15 @@ export async function deleteCategory(id: string) {
       };
     }
 
+    // 获取分类 slug 用于清理缓存
+    const category = await db.query.categories.findFirst({
+      where: eq(categories.id, id),
+      columns: { slug: true },
+    });
+
     await db.delete(categories).where(eq(categories.id, id));
 
-    revalidatePath("/admin/categories");
-    revalidatePath("/");
+    await revalidateCategoryCache(category?.slug);
 
     return { success: true, message: "分类已删除" };
   } catch (error) {
@@ -205,8 +208,7 @@ export async function toggleCategoryActive(id: string) {
       })
       .where(eq(categories.id, id));
 
-    revalidatePath("/admin/categories");
-    revalidatePath("/");
+    await revalidateCategoryCache(category.slug);
 
     return {
       success: true,
