@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +20,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MoreHorizontal, CheckCircle2, Eye, Copy, RotateCcw, XCircle, Loader2, Globe } from "lucide-react";
-import { adminCompleteOrder, approveRefund, rejectRefund, getClientRefundData, markOrderRefunded } from "@/lib/actions/orders";
+import { adminCompleteOrder, approveRefund, rejectRefund } from "@/lib/actions/orders";
 import { toast } from "sonner";
 import type { RefundMode } from "@/lib/payment/ldc";
 
@@ -55,98 +55,57 @@ export function OrderActions({ orderId, orderNo, status, refundReason, refundEna
   };
 
   /**
-   * 客户端退款：浏览器直接调用 LDC API
+   * 客户端退款：打开新窗口，通过表单提交绕过 CORS
    */
-  const handleClientRefund = async (): Promise<boolean> => {
-    // 1. 获取退款参数
-    const paramsResult = await getClientRefundData(orderId);
-    if (!paramsResult.success || !paramsResult.data) {
-      toast.error(paramsResult.message);
-      return false;
+  const handleClientRefund = (): void => {
+    // 打开退款页面，该页面会通过表单提交到 LDC API
+    const refundWindow = window.open(
+      `/admin/refund/${orderId}`,
+      "refund_window",
+      "width=600,height=700,scrollbars=yes"
+    );
+
+    if (!refundWindow) {
+      toast.error("无法打开退款窗口，请检查是否被浏览器拦截");
+      return;
     }
 
-    const { apiUrl, pid, key, trade_no, money } = paramsResult.data;
-
-    // 2. 浏览器直接调用 LDC API
-    try {
-      toast.info("正在调用支付平台退款接口...");
-      
-      const formData = new URLSearchParams({
-        pid,
-        key,
-        trade_no,
-        money,
-      });
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Accept": "application/json",
-        },
-        body: formData.toString(),
-      });
-
-      const text = await response.text();
-      
-      // 检查是否被 CF 拦截
-      if (text.includes("Just a moment") || text.includes("cloudflare")) {
-        toast.error("被 Cloudflare 拦截，请先在新标签页打开 credit.linux.do 完成验证后重试");
-        // 打开新标签页让用户完成验证
-        window.open("https://credit.linux.do", "_blank");
-        return false;
-      }
-
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch {
-        console.error("退款接口返回非 JSON:", text.substring(0, 500));
-        toast.error("支付平台返回格式异常");
-        return false;
-      }
-
-      if (result.code !== 1) {
-        toast.error(`退款失败: ${result.msg || "支付平台返回错误"}`);
-        return false;
-      }
-
-      // 3. 退款成功，更新订单状态
-      const markResult = await markOrderRefunded(orderId, "客户端模式退款成功");
-      if (!markResult.success) {
-        toast.error(`退款成功，但更新订单状态失败: ${markResult.message}`);
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      console.error("客户端退款失败:", error);
-      toast.error("网络请求失败，请检查网络连接");
-      return false;
-    }
+    toast.info("已打开退款窗口，请在新窗口中确认退款结果");
+    setRefundDialogOpen(false);
   };
 
+  // 监听退款成功消息
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "refund_success" && event.data?.orderId === orderId) {
+        toast.success("退款成功，页面即将刷新");
+        // 刷新页面以更新订单列表
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [orderId]);
+
   const handleApproveRefund = () => {
-    startTransition(async () => {
-      let success = false;
-      
-      if (refundMode === 'client') {
-        // 客户端模式：浏览器直接调用 LDC API
-        success = await handleClientRefund();
-      } else {
-        // 代理模式：服务端调用
+    if (refundMode === 'client') {
+      // 客户端模式：打开新窗口处理退款
+      handleClientRefund();
+    } else {
+      // 代理模式：服务端调用
+      startTransition(async () => {
         const result = await approveRefund(orderId);
-        success = result.success;
-        if (!success) {
+        if (result.success) {
+          toast.success("退款成功");
+          setRefundDialogOpen(false);
+        } else {
           toast.error(result.message);
         }
-      }
-      
-      if (success) {
-        toast.success("退款成功");
-        setRefundDialogOpen(false);
-      }
-    });
+      });
+    }
   };
 
   const handleRejectRefund = () => {
