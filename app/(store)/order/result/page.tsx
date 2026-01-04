@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, use } from "react";
+import { useEffect, useState, useCallback, useRef, use } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,10 @@ interface OrderData {
   cards: string[];
 }
 
+// 轮询配置
+const POLL_INTERVAL = 2000; // 每 2 秒轮询一次
+const MAX_POLL_COUNT = 15; // 最多轮询 15 次（共 30 秒）
+
 export default function OrderResultPage({ searchParams }: OrderResultPageProps) {
   const params = use(searchParams);
   const { data: session, status: sessionStatus } = useSession();
@@ -43,6 +47,11 @@ export default function OrderResultPage({ searchParams }: OrderResultPageProps) 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isPolling, setIsPolling] = useState(false);
+  
+  // 轮询计数器
+  const pollCountRef = useRef(0);
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // 检查是否是 Linux DO 登录用户
   const user = session?.user as { provider?: string } | undefined;
@@ -59,7 +68,16 @@ export default function OrderResultPage({ searchParams }: OrderResultPageProps) 
     }
   }, [params.out_trade_no]);
 
-  const loadOrder = useCallback(async () => {
+  // 清理轮询定时器
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+      }
+    };
+  }, []);
+
+  const loadOrder = useCallback(async (isPollingRequest = false) => {
     if (!orderNo) {
       setIsLoading(false);
       return;
@@ -68,12 +86,30 @@ export default function OrderResultPage({ searchParams }: OrderResultPageProps) 
     try {
       const result = await getOrderByNo(orderNo);
       if (result.success && result.data) {
-        setOrder(result.data as OrderData);
+        const orderData = result.data as OrderData;
+        setOrder(orderData);
+        
+        // 如果订单状态是 pending 且未超过最大轮询次数，继续轮询
+        if (orderData.status === "pending" && pollCountRef.current < MAX_POLL_COUNT) {
+          setIsPolling(true);
+          pollCountRef.current++;
+          pollTimerRef.current = setTimeout(() => {
+            loadOrder(true);
+          }, POLL_INTERVAL);
+        } else {
+          setIsPolling(false);
+          // 如果订单状态已更新，显示提示
+          if (isPollingRequest && (orderData.status === "paid" || orderData.status === "completed")) {
+            toast.success("支付成功！");
+          }
+        }
       } else {
         setError(result.message || "获取订单失败");
+        setIsPolling(false);
       }
     } catch {
       setError("获取订单失败");
+      setIsPolling(false);
     } finally {
       setIsLoading(false);
     }
@@ -94,6 +130,8 @@ export default function OrderResultPage({ searchParams }: OrderResultPageProps) 
       return;
     }
 
+    // 重置轮询计数器
+    pollCountRef.current = 0;
     loadOrder();
   }, [sessionStatus, orderNo, isLoggedIn, loadOrder]);
 
@@ -261,8 +299,17 @@ export default function OrderResultPage({ searchParams }: OrderResultPageProps) 
           {/* Pending Notice */}
           {order.status === "pending" && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-              <Clock className="inline h-4 w-4 mr-1" />
-              订单待支付，请尽快完成支付
+              {isPolling ? (
+                <>
+                  <Loader2 className="inline h-4 w-4 mr-1 animate-spin" />
+                  正在确认支付状态，请稍候...
+                </>
+              ) : (
+                <>
+                  <Clock className="inline h-4 w-4 mr-1" />
+                  订单待支付，请尽快完成支付
+                </>
+              )}
             </div>
           )}
 

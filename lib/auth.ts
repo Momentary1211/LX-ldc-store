@@ -55,30 +55,27 @@ const LinuxDoProvider = {
     trust_level?: number;
     silenced?: boolean;
   }) {
-    if (process.env.NODE_ENV === "development") {
-      console.log("[LinuxDoProvider] profile 原始数据:", JSON.stringify(profile, null, 2));
-    }
-    
     // 处理头像URL模板，替换 {size} 为实际尺寸
     const avatarUrl = profile.avatar_template
       ? profile.avatar_template.replace("{size}", "120")
       : undefined;
     
-    const result = {
-      id: String(profile.id),
+    // 重要：Linux DO 的用户 ID（数字）转为字符串
+    // NextAuth v5 会覆盖 id 字段为内部 UUID，所以我们需要用自定义字段 linuxDoId 来保存真正的用户 ID
+    const linuxDoId = String(profile.id);
+    
+    return {
+      id: linuxDoId,
       name: profile.name || profile.username,
-      email: `${profile.username}@linux.do`, // Linux DO 不返回邮箱，使用用户名构造
+      email: `${profile.username}@linux.do`,
       image: avatarUrl,
+      // 自定义字段（不会被 NextAuth 覆盖）
+      linuxDoId,
       username: profile.username,
       trustLevel: profile.trust_level,
       active: profile.active,
       silenced: profile.silenced,
     };
-    
-    if (process.env.NODE_ENV === "development") {
-      console.log("[LinuxDoProvider] profile 返回数据:", JSON.stringify(result, null, 2));
-    }
-    return result;
   },
 };
 
@@ -126,13 +123,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user, account }) {
       if (user) {
-        if (process.env.NODE_ENV === "development") {
-          console.log("[JWT Callback] user:", JSON.stringify(user, null, 2));
-          console.log("[JWT Callback] account provider:", account?.provider);
-        }
+        // 获取自定义字段 linuxDoId（不会被 NextAuth 覆盖）
+        const linuxDoId = (user as { linuxDoId?: string }).linuxDoId;
         
-        token.id = user.id;
+        // 重要：使用 linuxDoId 作为稳定的用户 ID
+        // NextAuth v5 会将 user.id 替换为内部 UUID，所以我们使用自定义字段
+        const stableUserId = linuxDoId || account?.providerAccountId || user.id;
+        
+        // 设置 token 中的用户 ID（用于后续请求）
+        token.id = stableUserId;
+        token.sub = stableUserId;
         token.role = (user as { role?: string }).role;
+        
         // 保存 OAuth 用户的额外信息
         if (account?.provider === "linux-do") {
           const username = (user as { username?: string }).username;
@@ -146,21 +148,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const adminUsernames = getAdminUsernames();
           if (username && adminUsernames.includes(username)) {
             token.role = "admin";
-            if (process.env.NODE_ENV === "development") {
-              console.log("[JWT Callback] OAuth 用户在管理员白名单中:", username);
-            }
           }
-        }
-        
-        if (process.env.NODE_ENV === "development") {
-          console.log("[JWT Callback] token:", JSON.stringify(token, null, 2));
         }
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
+        // 使用 token.id 或 token.sub 作为用户 ID（确保兼容性）
+        session.user.id = (token.id || token.sub) as string;
         (session.user as { role?: string }).role = token.role as string;
         // 传递 OAuth 用户信息到 session
         (session.user as { username?: string }).username = token.username as string;
@@ -178,5 +174,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: {
     strategy: "jwt",
   },
+  // Vercel 部署必需：信任代理主机
+  trustHost: true,
 });
 
