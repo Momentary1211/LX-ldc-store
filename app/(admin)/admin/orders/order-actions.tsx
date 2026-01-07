@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -152,17 +153,19 @@ export function OrderActions({ orderId, orderNo, status, refundReason, refundEna
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={copyOrderNo}>
-            <Copy className="mr-2 h-4 w-4" />
-            复制订单号
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Eye className="mr-2 h-4 w-4" />
-            查看详情
-          </DropdownMenuItem>
-          {(status === "pending" || status === "paid") && (
-            <>
+	        <DropdownMenuContent align="end">
+	          <DropdownMenuItem onClick={copyOrderNo}>
+	            <Copy className="mr-2 h-4 w-4" />
+	            复制订单号
+	          </DropdownMenuItem>
+	          <DropdownMenuItem asChild>
+	            <Link href={`/admin/orders/${orderId}`}>
+	              <Eye className="mr-2 h-4 w-4" />
+	              查看详情
+	            </Link>
+	          </DropdownMenuItem>
+	          {(status === "pending" || status === "paid") && (
+	            <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleComplete}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />

@@ -21,6 +21,34 @@ export async function getActiveCategories() {
   });
 }
 
+export interface AdminCategoryOption {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+/**
+ * 获取所有分类（管理后台：用于商品表单选择）
+ */
+export async function getAdminCategories(): Promise<AdminCategoryOption[]> {
+  try {
+    await requireAdmin();
+  } catch {
+    return [];
+  }
+
+  return db.query.categories.findMany({
+    columns: {
+      id: true,
+      name: true,
+      isActive: true,
+      sortOrder: true,
+    },
+    orderBy: [asc(categories.sortOrder), asc(categories.name)],
+  });
+}
+
 /**
  * 获取所有分类及商品数量（管理后台）
  */
@@ -219,4 +247,3 @@ export async function toggleCategoryActive(id: string) {
     return { success: false, message: "操作失败" };
   }
 }
-

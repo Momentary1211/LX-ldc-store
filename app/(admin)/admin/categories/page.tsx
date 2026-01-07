@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { FolderTree, Plus, Eye, EyeOff } from "lucide-react";
+import { FolderTree, Eye, EyeOff } from "lucide-react";
 import { CategoryActions } from "./category-actions";
 import { CreateCategoryDialog } from "./create-category-dialog";
 
@@ -93,8 +93,15 @@ export default async function CategoriesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <CategoryActions
-                          categoryId={category.id}
-                          isActive={category.isActive}
+                          category={{
+                            id: category.id,
+                            name: category.name,
+                            slug: category.slug,
+                            description: category.description,
+                            icon: category.icon,
+                            sortOrder: category.sortOrder,
+                            isActive: category.isActive,
+                          }}
                           productCount={category.productCount}
                         />
                       </TableCell>
@@ -117,4 +124,3 @@ export default async function CategoriesPage() {
     </div>
   );
 }
-

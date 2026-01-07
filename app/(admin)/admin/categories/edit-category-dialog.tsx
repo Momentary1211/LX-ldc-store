@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { updateCategory } from "@/lib/actions/categories";
+import { categorySchema, type CategoryInput } from "@/lib/validations/category";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -12,10 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
   FormControl,
@@ -25,31 +27,53 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { createCategory } from "@/lib/actions/categories";
-import { categorySchema, type CategoryInput } from "@/lib/validations/category";
 import { toast } from "sonner";
-import { Loader2, Plus, FolderTree } from "lucide-react";
+import { FolderTree, Loader2 } from "lucide-react";
 
-interface CreateCategoryDialogProps {
-  children?: React.ReactNode;
+export interface AdminCategoryEditable {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  icon?: string | null;
+  sortOrder: number;
+  isActive: boolean;
 }
 
-export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
-  const [open, setOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+interface EditCategoryDialogProps {
+  category: AdminCategoryEditable;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function toFormValues(category: AdminCategoryEditable): CategoryInput {
+  return {
+    name: category.name,
+    slug: category.slug,
+    description: category.description ?? "",
+    icon: category.icon ?? "",
+    sortOrder: category.sortOrder,
+    isActive: category.isActive,
+  };
+}
+
+export function EditCategoryDialog({
+  category,
+  open,
+  onOpenChange,
+}: EditCategoryDialogProps) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
   const form = useForm<CategoryInput>({
     resolver: zodResolver(categorySchema),
-    defaultValues: {
-      name: "",
-      slug: "",
-      description: "",
-      icon: "",
-      sortOrder: 0,
-      isActive: true,
-    },
+    defaultValues: toFormValues(category),
   });
+
+  useEffect(() => {
+    if (!open) return;
+    form.reset(toFormValues(category));
+  }, [open, category, form]);
 
   const watchName = form.watch("name");
   const generateSlug = () => {
@@ -63,13 +87,12 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
 
   const onSubmit = (values: CategoryInput) => {
     startTransition(async () => {
-      const result = await createCategory(values);
+      const result = await updateCategory(category.id, values);
 
       if (result.success) {
-        toast.success("分类创建成功");
-        form.reset();
-        setOpen(false);
-        // 为什么这样做：创建后需要立刻刷新列表，避免用户以为未生效。
+        toast.success("分类更新成功");
+        onOpenChange(false);
+        // 为什么这样做：编辑会影响列表与前台分类展示，刷新能让用户立刻看到最新数据。
         router.refresh();
       } else {
         toast.error(result.message);
@@ -78,23 +101,15 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {children || (
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            添加分类
-          </Button>
-        )}
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FolderTree className="h-5 w-5" />
-            创建分类
+            编辑分类
           </DialogTitle>
           <DialogDescription>
-            添加新的商品分类
+            修改分类信息与展示状态
           </DialogDescription>
         </DialogHeader>
 
@@ -147,11 +162,7 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
                 <FormItem>
                   <FormLabel>描述</FormLabel>
                   <FormControl>
-                    <Textarea
-                      placeholder="分类描述（可选）"
-                      rows={2}
-                      {...field}
-                    />
+                    <Textarea placeholder="分类描述（可选）" rows={2} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -184,7 +195,7 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
                         type="number"
                         {...field}
                         onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 0)
+                          field.onChange(Number.parseInt(e.target.value, 10) || 0)
                         }
                       />
                     </FormControl>
@@ -194,11 +205,32 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
               />
             </div>
 
+            <FormField
+              control={form.control}
+              name="isActive"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-sm">前台可见</FormLabel>
+                    <FormDescription>
+                      关闭后分类不会在首页与搜索过滤中展示
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => onOpenChange(false)}
               >
                 取消
               </Button>
@@ -206,10 +238,10 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    创建中...
+                    保存中...
                   </>
                 ) : (
-                  "创建分类"
+                  "保存"
                 )}
               </Button>
             </DialogFooter>
@@ -219,3 +251,4 @@ export function CreateCategoryDialog({ children }: CreateCategoryDialogProps) {
     </Dialog>
   );
 }
+

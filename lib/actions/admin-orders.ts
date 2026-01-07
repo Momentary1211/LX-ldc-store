@@ -5,6 +5,7 @@ import {
   cards,
   orders,
   type Order,
+  type CardStatus,
   type OrderStatus,
   type PaymentMethod,
 } from "@/lib/db";
@@ -43,6 +44,52 @@ export interface AdminOrdersPageResult {
   items: AdminOrderListItem[];
   total: number;
   stats: AdminOrdersStats;
+}
+
+export interface AdminOrderDetailCardItem {
+  id: string;
+  content: string;
+  status: CardStatus;
+  lockedAt: string | null;
+  soldAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminOrderDetail {
+  id: string;
+  orderNo: string;
+  productId: string | null;
+  productName: string;
+  productPrice: string;
+  quantity: number;
+  totalAmount: string;
+  paymentMethod: PaymentMethod;
+  status: OrderStatus;
+  tradeNo: string | null;
+  userId: string | null;
+  username: string | null;
+  email: string | null;
+  remark: string | null;
+  adminRemark: string | null;
+  refundReason: string | null;
+  paidAt: string | null;
+  expiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  refundRequestedAt: string | null;
+  refundedAt: string | null;
+  cards: AdminOrderDetailCardItem[];
+  product?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
+}
+
+export interface AdminOrderDetailResult {
+  success: boolean;
+  message: string;
+  data?: AdminOrderDetail;
 }
 
 export interface DeleteAdminOrdersResult {
@@ -285,6 +332,109 @@ export async function deleteAdminOrders(orderIds: string[]): Promise<DeleteAdmin
     return {
       success: false,
       message: error instanceof Error ? error.message : "删除订单失败，请稍后重试",
+    };
+  }
+}
+
+function serializeAdminOrderDetailCard(row: {
+  id: string;
+  content: string;
+  status: CardStatus;
+  lockedAt: unknown;
+  soldAt: unknown;
+  createdAt: unknown;
+}): AdminOrderDetailCardItem {
+  return {
+    id: row.id,
+    content: row.content,
+    status: row.status,
+    lockedAt: toIsoString(row.lockedAt),
+    soldAt: toIsoString(row.soldAt),
+    createdAt: toIsoString(row.createdAt) ?? "",
+  };
+}
+
+export async function getAdminOrderDetail(orderId: string): Promise<AdminOrderDetailResult> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { success: false, message: "需要管理员权限" };
+  }
+
+  const trimmedId = orderId.trim();
+  if (!trimmedId) {
+    return { success: false, message: "订单 ID 无效" };
+  }
+
+  try {
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.id, trimmedId),
+      with: {
+        product: {
+          columns: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        cards: {
+          columns: {
+            id: true,
+            content: true,
+            status: true,
+            lockedAt: true,
+            soldAt: true,
+            createdAt: true,
+          },
+          orderBy: (c, { asc }) => [asc(c.createdAt)],
+        },
+      },
+    });
+
+    if (!order) {
+      return { success: false, message: "订单不存在或已删除" };
+    }
+
+    return {
+      success: true,
+      message: "ok",
+      data: {
+        id: order.id,
+        orderNo: order.orderNo,
+        productId: order.productId ?? null,
+        productName: order.productName,
+        productPrice: order.productPrice,
+        quantity: order.quantity,
+        totalAmount: order.totalAmount,
+        paymentMethod: order.paymentMethod,
+        status: order.status,
+        tradeNo: order.tradeNo ?? null,
+        userId: order.userId ?? null,
+        username: order.username ?? null,
+        email: order.email ?? null,
+        remark: order.remark ?? null,
+        adminRemark: order.adminRemark ?? null,
+        refundReason: order.refundReason ?? null,
+        paidAt: toIsoString(order.paidAt),
+        expiredAt: toIsoString(order.expiredAt),
+        createdAt: toIsoString(order.createdAt) ?? "",
+        updatedAt: toIsoString(order.updatedAt) ?? "",
+        refundRequestedAt: toIsoString(order.refundRequestedAt),
+        refundedAt: toIsoString(order.refundedAt),
+        cards: order.cards.map(serializeAdminOrderDetailCard),
+        product: order.product
+          ? {
+              id: order.product.id,
+              name: order.product.name,
+              slug: order.product.slug,
+            }
+          : null,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "获取订单详情失败，请稍后重试",
     };
   }
 }
