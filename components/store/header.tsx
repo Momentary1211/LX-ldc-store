@@ -15,6 +15,7 @@ import {
   Rocket,
   Shield,
   Zap,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -201,6 +202,17 @@ export function Header({ siteName = "LDC Store", siteIcon }: HeaderProps) {
           </Popover>
 
           <ThemeToggle />
+
+          <Button
+            asChild
+            variant="ghost"
+            size="icon-sm"
+            aria-label="顾客消费榜"
+          >
+            <Link href="/leaderboard">
+              <TrendingUp className="h-4 w-4" />
+            </Link>
+          </Button>
           
           {/* 用户状态 */}
           {status === "loading" ? (

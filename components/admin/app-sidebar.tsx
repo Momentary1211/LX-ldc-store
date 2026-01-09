@@ -8,6 +8,7 @@ import {
   CreditCard,
   ShoppingCart,
   FolderTree,
+  Users,
   Settings,
   Activity,
   LogOut,
@@ -69,6 +70,11 @@ const mainNavItems = [
     title: "订单管理",
     href: "/admin/orders",
     icon: ShoppingCart,
+  },
+  {
+    title: "顾客管理",
+    href: "/admin/customers",
+    icon: Users,
   },
   {
     title: "公告管理",
