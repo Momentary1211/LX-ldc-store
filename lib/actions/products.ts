@@ -2,12 +2,16 @@
 
 import { db, products, cards, categories, orders } from "@/lib/db";
 import { eq, and, desc, asc, sql, ilike, or, inArray } from "drizzle-orm";
+import { z } from "zod";
 import {
   createProductSchema,
+  productSchema,
   updateProductSchema,
   type CreateProductInput,
+  type ProductInput,
   type UpdateProductInput,
 } from "@/lib/validations/product";
+import { suggestCopySlug } from "@/lib/utils/slug";
 import { requireAdmin } from "@/lib/auth-utils";
 import { revalidateProductAndRelatedCache } from "@/lib/cache";
 import {
@@ -254,6 +258,127 @@ export async function getProductById(id: string) {
     ...product,
     stock: stockCount?.count || 0,
   };
+}
+
+// ============================================
+// 商品复制模板功能
+// ============================================
+
+export type GetProductTemplateByIdResult =
+  | { success: true; data: ProductInput; templateName: string }
+  | { success: false; message: string };
+
+const productTemplateIdSchema = z.string().uuid("无效的模板商品ID");
+
+function toDecimalNumber(value: unknown): number {
+  if (typeof value === "string" && value.trim() === "") {
+    throw new Error("invalid decimal");
+  }
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error("invalid decimal");
+  }
+  return n;
+}
+
+function mapDbProductToTemplateInput(row: {
+  name: string;
+  slug: string;
+  categoryId: string | null;
+  description: string | null;
+  content: string | null;
+  price: unknown;
+  originalPrice: unknown;
+  coverImage: string | null;
+  images: string[] | null;
+  isActive: boolean;
+  isFeatured: boolean;
+  sortOrder: number;
+  minQuantity: number;
+  maxQuantity: number;
+}): ProductInput {
+  const price = toDecimalNumber(row.price);
+  const originalPrice =
+    row.originalPrice == null ? undefined : toDecimalNumber(row.originalPrice);
+
+  return {
+    name: row.name,
+    slug: suggestCopySlug(row.slug),
+    categoryId: row.categoryId ?? null,
+    description: row.description ?? "",
+    content: row.content ?? "",
+    price,
+    originalPrice,
+    coverImage: row.coverImage ?? "",
+    images: row.images ?? [],
+    isActive: false,
+    isFeatured: row.isFeatured,
+    sortOrder: row.sortOrder,
+    minQuantity: row.minQuantity,
+    maxQuantity: row.maxQuantity,
+  };
+}
+
+/**
+ * 获取商品复制模板（管理后台）
+ */
+export async function getProductTemplateById(
+  templateId: string
+): Promise<GetProductTemplateByIdResult> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { success: false, message: "需要管理员权限" };
+  }
+
+  const parsedId = productTemplateIdSchema.safeParse(templateId);
+  if (!parsedId.success) {
+    return {
+      success: false,
+      message: parsedId.error.issues[0]?.message ?? "参数错误",
+    };
+  }
+
+  const row = await db.query.products.findFirst({
+    where: eq(products.id, parsedId.data),
+    columns: {
+      name: true,
+      slug: true,
+      categoryId: true,
+      description: true,
+      content: true,
+      price: true,
+      originalPrice: true,
+      coverImage: true,
+      images: true,
+      isActive: true,
+      isFeatured: true,
+      sortOrder: true,
+      minQuantity: true,
+      maxQuantity: true,
+    },
+  });
+
+  if (!row) {
+    return { success: false, message: "模板商品不存在" };
+  }
+
+  try {
+    const template = mapDbProductToTemplateInput(row);
+    const checked = productSchema.safeParse(template);
+    if (!checked.success) {
+      return { success: false, message: "模板数据异常，无法生成" };
+    }
+
+    return {
+      success: true,
+      data: checked.data,
+      templateName: row.name,
+    };
+  } catch (error) {
+    console.error("[getProductTemplateById] 生成模板失败:", error);
+    return { success: false, message: "模板数据异常，无法生成" };
+  }
 }
 
 /**
@@ -621,6 +746,326 @@ export async function deleteProduct(id: string) {
   } catch (error) {
     console.error("删除商品失败:", error);
     return { success: false, message: "删除商品失败" };
+  }
+}
+
+// ============================================
+// 商品管理后台分页查询与批量操作
+// ============================================
+
+export type AdminProductStatusFilter = "active" | "inactive" | "out_of_stock";
+
+export interface AdminProductsFilters {
+  query?: string;
+  categoryId?: string;
+  status?: AdminProductStatusFilter;
+}
+
+export interface AdminProductListItem {
+  id: string;
+  name: string;
+  slug: string;
+  coverImage: string | null;
+  price: string;
+  originalPrice: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  stock: number;
+  salesCount: number;
+  isActive: boolean;
+  isFeatured: boolean;
+  sortOrder: number;
+  createdAt: Date;
+}
+
+export interface AdminProductsPageResult {
+  items: AdminProductListItem[];
+  total: number;
+  stats: {
+    total: number;
+    active: number;
+    outOfStock: number;
+  };
+}
+
+/**
+ * 获取商品分页列表（管理后台）
+ * 支持搜索、分类筛选、状态筛选
+ */
+export async function getAdminProductsPage(params: {
+  page: number;
+  pageSize: number;
+  filters: AdminProductsFilters;
+}): Promise<AdminProductsPageResult> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { items: [], total: 0, stats: { total: 0, active: 0, outOfStock: 0 } };
+  }
+
+  const { page, pageSize, filters } = params;
+  const offset = (page - 1) * pageSize;
+
+  // 构建基础查询条件
+  const conditions: ReturnType<typeof eq>[] = [];
+
+  if (filters.query) {
+    const pattern = `%${filters.query}%`;
+    conditions.push(
+      or(
+        ilike(products.name, pattern),
+        ilike(products.slug, pattern),
+        ilike(products.description, pattern)
+      )!
+    );
+  }
+
+  if (filters.categoryId) {
+    conditions.push(eq(products.categoryId, filters.categoryId));
+  }
+
+  if (filters.status === "active") {
+    conditions.push(eq(products.isActive, true));
+  } else if (filters.status === "inactive") {
+    conditions.push(eq(products.isActive, false));
+  }
+  // out_of_stock 需要在查询后过滤
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  // 并行查询：商品列表、总数、统计
+  const [productList, totalResult, statsResult] = await Promise.all([
+    // 商品列表
+    db.query.products.findMany({
+      where: whereClause,
+      columns: {
+        id: true,
+        categoryId: true,
+        name: true,
+        slug: true,
+        price: true,
+        originalPrice: true,
+        coverImage: true,
+        isActive: true,
+        isFeatured: true,
+        salesCount: true,
+        sortOrder: true,
+        createdAt: true,
+      },
+      with: {
+        category: {
+          columns: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [asc(products.sortOrder), desc(products.createdAt)],
+      // 如果是 out_of_stock 筛选，需要获取更多数据后过滤
+      limit: filters.status === "out_of_stock" ? undefined : pageSize,
+      offset: filters.status === "out_of_stock" ? undefined : offset,
+    }),
+    // 总数
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(products)
+      .where(whereClause),
+    // 统计
+    db
+      .select({
+        total: sql<number>`count(*)::int`,
+        active: sql<number>`count(*) filter (where ${products.isActive} = true)::int`,
+      })
+      .from(products),
+  ]);
+
+  const total = totalResult[0]?.count ?? 0;
+  const stats = {
+    total: statsResult[0]?.total ?? 0,
+    active: statsResult[0]?.active ?? 0,
+    outOfStock: 0, // 稍后计算
+  };
+
+  if (productList.length === 0) {
+    return { items: [], total: 0, stats };
+  }
+
+  // 获取库存统计
+  const productIds = productList.map((p) => p.id);
+  const stockCounts = await db
+    .select({
+      productId: cards.productId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(cards)
+    .where(
+      and(inArray(cards.productId, productIds), eq(cards.status, "available"))
+    )
+    .groupBy(cards.productId);
+
+  const stockMap = new Map(stockCounts.map((s) => [s.productId, s.count]));
+
+  // 计算缺货商品数
+  const allProductIds = await db
+    .select({ id: products.id })
+    .from(products);
+
+  if (allProductIds.length > 0) {
+    const allStockCounts = await db
+      .select({
+        productId: cards.productId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(cards)
+      .where(
+        and(
+          inArray(cards.productId, allProductIds.map((p) => p.id)),
+          eq(cards.status, "available")
+        )
+      )
+      .groupBy(cards.productId);
+
+    const allStockMap = new Map(allStockCounts.map((s) => [s.productId, s.count]));
+    stats.outOfStock = allProductIds.filter(
+      (p) => (allStockMap.get(p.id) ?? 0) === 0
+    ).length;
+  }
+
+  // 映射结果
+  let items: AdminProductListItem[] = productList.map((product) => ({
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    coverImage: product.coverImage,
+    price: product.price,
+    originalPrice: product.originalPrice,
+    categoryId: product.categoryId,
+    categoryName: product.category?.name ?? null,
+    stock: stockMap.get(product.id) ?? 0,
+    salesCount: product.salesCount,
+    isActive: product.isActive,
+    isFeatured: product.isFeatured,
+    sortOrder: product.sortOrder,
+    createdAt: product.createdAt,
+  }));
+
+  // 如果是 out_of_stock 筛选，需要过滤并分页
+  if (filters.status === "out_of_stock") {
+    items = items.filter((item) => item.stock === 0);
+    const filteredTotal = items.length;
+    items = items.slice(offset, offset + pageSize);
+    return { items, total: filteredTotal, stats };
+  }
+
+  return { items, total, stats };
+}
+
+/**
+ * 批量更新商品状态（上架/下架）
+ */
+export async function bulkUpdateProductStatus(
+  ids: string[],
+  action: "activate" | "deactivate"
+): Promise<{ success: boolean; message: string; count?: number }> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { success: false, message: "需要管理员权限" };
+  }
+
+  if (!ids || ids.length === 0) {
+    return { success: false, message: "请选择要操作的商品" };
+  }
+
+  if (ids.length > 100) {
+    return { success: false, message: "单次最多操作100个商品" };
+  }
+
+  try {
+    const newStatus = action === "activate";
+    const result = await db
+      .update(products)
+      .set({
+        isActive: newStatus,
+        updatedAt: new Date(),
+      })
+      .where(inArray(products.id, ids))
+      .returning({ id: products.id });
+
+    const count = result.length;
+    const actionText = action === "activate" ? "上架" : "下架";
+
+    // 清理缓存
+    await revalidateProductAndRelatedCache();
+
+    return {
+      success: true,
+      message: `成功${actionText} ${count} 个商品`,
+      count,
+    };
+  } catch (error) {
+    console.error("批量更新商品状态失败:", error);
+    return { success: false, message: "操作失败，请重试" };
+  }
+}
+
+/**
+ * 批量删除商品
+ */
+export async function bulkDeleteProducts(
+  ids: string[]
+): Promise<{ success: boolean; message: string; count?: number }> {
+  try {
+    await requireAdmin();
+  } catch {
+    return { success: false, message: "需要管理员权限" };
+  }
+
+  if (!ids || ids.length === 0) {
+    return { success: false, message: "请选择要删除的商品" };
+  }
+
+  if (ids.length > 50) {
+    return { success: false, message: "单次最多删除50个商品" };
+  }
+
+  try {
+    // 检查是否有未完成的订单
+    const activeOrders = await db.query.orders.findMany({
+      where: and(
+        inArray(orders.productId, ids),
+        or(eq(orders.status, "pending"), eq(orders.status, "paid"))
+      ),
+      columns: { productId: true },
+    });
+
+    if (activeOrders.length > 0) {
+      const affectedCount = new Set(activeOrders.map((o) => o.productId)).size;
+      return {
+        success: false,
+        message: `有 ${affectedCount} 个商品存在未完成的订单，无法删除`,
+      };
+    }
+
+    // 执行删除
+    const result = await db
+      .delete(products)
+      .where(inArray(products.id, ids))
+      .returning({ id: products.id });
+
+    const count = result.length;
+
+    // 清理缓存
+    await revalidateProductAndRelatedCache();
+
+    return {
+      success: true,
+      message: `成功删除 ${count} 个商品`,
+      count,
+    };
+  } catch (error) {
+    console.error("批量删除商品失败:", error);
+    return { success: false, message: "删除失败，请重试" };
   }
 }
 

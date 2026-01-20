@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Eye, EyeOff, Trash2, CreditCard } from "lucide-react";
+import { MoreHorizontal, Pencil, Eye, EyeOff, Trash2, CreditCard, Copy } from "lucide-react";
 import { toggleProductActive, deleteProduct } from "@/lib/actions/products";
 import { toast } from "sonner";
 
@@ -77,6 +77,12 @@ export function ProductActions({
           <Link href={editHref}>
             <Pencil className="mr-2 h-4 w-4" />
             编辑
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/admin/products/new?templateId=${productId}`}>
+            <Copy className="mr-2 h-4 w-4" />
+            复制为新商品
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
