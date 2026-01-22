@@ -49,3 +49,4 @@ helloagents/
 .zcf/
 .claude/
 .spec-workflow/
+.ace-tool/
