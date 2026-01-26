@@ -37,20 +37,15 @@ import { parseWalletAmount } from "@/lib/money";
 import {
   sendNewOrderNotification,
   sendPaymentSuccessNotification,
-  sendOrderExpiredNotification,
-  sendOrderExpiredSummaryNotification,
   sendRefundRequestNotification,
   sendRefundApprovedNotification,
   sendRefundRejectedNotification,
   type NewOrderNotificationPayload,
   type PaymentSuccessNotificationPayload,
-  type OrderExpiredNotificationPayload,
   type RefundRequestNotificationPayload,
   type RefundApprovedNotificationPayload,
   type RefundRejectedNotificationPayload,
 } from "@/lib/notifications/telegram";
-
-const EXPIRED_NOTIFICATION_LIMIT = 20;
 
 /**
  * 从请求头自动获取网站 URL
@@ -393,13 +388,6 @@ export async function releaseExpiredOrders(): Promise<number> {
         )
         .returning({
           id: orders.id,
-          orderNo: orders.orderNo,
-          productName: orders.productName,
-          quantity: orders.quantity,
-          totalAmount: orders.totalAmount,
-          paymentMethod: orders.paymentMethod,
-          username: orders.username,
-          expiredAt: orders.expiredAt,
         });
 
       if (expiredOrders.length === 0) {
@@ -428,33 +416,6 @@ export async function releaseExpiredOrders(): Promise<number> {
       revalidatePath("/admin/orders");
       revalidatePath("/");
       logger.info({ action: "releaseExpiredOrders", expiredOrders: expiredOrdersData.length }, "释放过期订单完成");
-
-      after(async () => {
-        try {
-          const config = await getTelegramConfigWithToggles();
-          if (expiredOrdersData.length <= EXPIRED_NOTIFICATION_LIMIT) {
-            for (const order of expiredOrdersData) {
-              const payload: OrderExpiredNotificationPayload = {
-                orderNo: order.orderNo,
-                productName: order.productName,
-                quantity: order.quantity,
-                totalAmount: order.totalAmount,
-                paymentMethod: order.paymentMethod,
-                username: order.username,
-                expiredAt: order.expiredAt!,
-              };
-              await sendOrderExpiredNotification(config, payload);
-            }
-          } else {
-            await sendOrderExpiredSummaryNotification(config, {
-              totalCount: expiredOrdersData.length,
-              orderNos: expiredOrdersData.slice(0, EXPIRED_NOTIFICATION_LIMIT).map((o) => o.orderNo),
-            });
-          }
-        } catch (e) {
-          console.error("[Telegram] 订单过期通知发送失败:", e);
-        }
-      });
     }
     return expiredOrdersData.length;
   } catch (error) {
